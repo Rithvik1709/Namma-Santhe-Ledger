@@ -3,6 +3,7 @@ package com.example.nammasantheledger.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -73,8 +75,11 @@ fun CustomerDetailScreen(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val displayedPhone = customer?.phone?.let {
+                        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+                    } ?: ""
                     Text(
-                        text = customer?.phone ?: "",
+                        text = displayedPhone,
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.Gray
                     )
@@ -127,37 +132,96 @@ fun CustomerDetailScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = {
-                    customer?.let {
-                        sendWhatsAppReminder(context, it.name, it.phone, balance)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)) // WhatsApp Green
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Share, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Send WhatsApp Reminder")
+                Button(
+                    onClick = {
+                        customer?.let {
+                            sendWhatsAppReminder(context, it.name, it.phone, balance)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)) // WhatsApp Green
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("WhatsApp", style = MaterialTheme.typography.labelLarge)
+                }
+
+                Button(
+                    onClick = {
+                        customer?.let {
+                            sendSMSReminder(context, it.name, it.phone, balance)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF)) // SMS Blue
+                ) {
+                    Icon(Icons.Default.Email, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("SMS", style = MaterialTheme.typography.labelLarge)
+                }
             }
         }
     }
 }
 
 private fun sendWhatsAppReminder(context: Context, name: String, phone: String, amount: Double) {
-    val message = "Hello $name, you have a pending due of ₹${String.format("%.2f", amount)} at Namma Santhe. Please clear when convenient. Thank you!"
-    val i = Intent(Intent.ACTION_VIEW)
+    val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
+    val encodedMessage = try { URLEncoder.encode(message, "UTF-8") } catch (e: Exception) { message }
+    // Clean and remove leading 91
+    val cleanPhone = phone.filter { it.isDigit() }.let { 
+        if (it.startsWith("91") && it.length == 12) it.substring(2) else it 
+    }
+    
+    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage"
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+
     try {
-        val url = "https://api.whatsapp.com/send?phone=91$phone&text=" + URLEncoder.encode(message, "UTF-8")
-        i.setPackage("com.whatsapp")
-        i.data = Uri.parse(url)
-        context.startActivity(i)
+        val whatsappIntent = Intent(intent)
+        whatsappIntent.setPackage("com.whatsapp")
+        context.startActivity(whatsappIntent)
     } catch (e: Exception) {
-        val url = "https://api.whatsapp.com/send?phone=91$phone&text=" + URLEncoder.encode(message, "UTF-8")
-        i.data = Uri.parse(url)
-        context.startActivity(i)
+        try {
+            context.startActivity(intent)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Could not open WhatsApp or Browser", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun sendSMSReminder(context: Context, name: String, phone: String, amount: Double) {
+    val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
+    // Clean and remove leading 91
+    val cleanPhone = phone.filter { it.isDigit() }.let { 
+        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+    }
+    
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("smsto:$cleanPhone")
+        putExtra("sms_body", message)
+        putExtra("body", message)
+    }
+    
+    try {
+        Toast.makeText(context, "Opening SMS app... Please tap Send", Toast.LENGTH_SHORT).show()
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("sms:$cleanPhone?body=${Uri.encode(message)}")
+        }
+        try {
+            context.startActivity(viewIntent)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Could not open SMS app", Toast.LENGTH_SHORT).show()
+        }
     }
 }

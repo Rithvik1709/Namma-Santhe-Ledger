@@ -1,17 +1,25 @@
 package com.example.nammasantheledger.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -20,6 +28,7 @@ import com.example.nammasantheledger.ui.components.BottomNavigationBar
 import com.example.nammasantheledger.ui.theme.ErrorTomato
 import com.example.nammasantheledger.ui.theme.PaidGreen
 import com.example.nammasantheledger.viewmodel.CustomerViewModel
+import java.net.URLEncoder
 
 @Composable
 fun CustomerListScreen(
@@ -28,8 +37,12 @@ fun CustomerListScreen(
     onNavigateToHome: () -> Unit,
     onNavigateToCustomers: () -> Unit
 ) {
+    val context = LocalContext.current
     val customers by viewModel.filteredCustomers.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    
+    var showEditDialog by remember { mutableStateOf(false) }
+    var customerToEdit by remember { mutableStateOf<Customer?>(null) }
 
     Scaffold(
         bottomBar = {
@@ -86,16 +99,111 @@ fun CustomerListScreen(
                 ) {
                     items(customers) { customer ->
                         val balance by viewModel.getCustomerBalance(customer.id).collectAsState(initial = 0.0)
-                        CustomerCard(customer, balance, onClick = { onCustomerClick(customer.id) })
+                        CustomerCard(
+                            customer = customer,
+                            balance = balance,
+                            onClick = { onCustomerClick(customer.id) },
+                            onWhatsAppClick = {
+                                sendWhatsAppReminder(context, customer.name, customer.phone, balance)
+                            },
+                            onSMSClick = {
+                                sendSMSReminder(context, customer.name, customer.phone, balance)
+                            },
+                            onEditClick = {
+                                customerToEdit = customer
+                                showEditDialog = true
+                            }
+                        )
                     }
                 }
             }
+        }
+        
+        if (showEditDialog && customerToEdit != null) {
+            EditCustomerDialog(
+                customer = customerToEdit!!,
+                onDismiss = { 
+                    showEditDialog = false
+                    customerToEdit = null
+                },
+                onConfirm = { updatedCustomer ->
+                    viewModel.updateCustomer(updatedCustomer) {
+                        showEditDialog = false
+                        customerToEdit = null
+                        Toast.makeText(context, "Customer updated", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-fun CustomerCard(customer: Customer, balance: Double, onClick: () -> Unit) {
+fun EditCustomerDialog(
+    customer: Customer,
+    onDismiss: () -> Unit,
+    onConfirm: (Customer) -> Unit
+) {
+    var name by remember { mutableStateOf(customer.name) }
+    // Pre-clean the phone number for the input field
+    var phone by remember { 
+        mutableStateOf(customer.phone.let {
+            if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+        }) 
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Customer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Phone Number") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                // Final clean before saving
+                val cleanedPhone = phone.filter { it.isDigit() }.let {
+                    if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+                }
+                onConfirm(customer.copy(name = name, phone = cleanedPhone))
+            }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun CustomerCard(
+    customer: Customer,
+    balance: Double,
+    onClick: () -> Unit,
+    onWhatsAppClick: () -> Unit,
+    onSMSClick: () -> Unit,
+    onEditClick: () -> Unit
+) {
+    // Ensure display always strips 91
+    val displayedPhone = customer.phone.let {
+        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -111,18 +219,62 @@ fun CustomerCard(customer: Customer, balance: Double, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Text(
-                    text = customer.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = customer.phone,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (balance > 0) {
+                    IconButton(
+                        onClick = onWhatsAppClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "WhatsApp Reminder",
+                            tint = Color(0xFF25D366)
+                        )
+                    }
+                    IconButton(
+                        onClick = onSMSClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = "SMS Reminder",
+                            tint = Color(0xFF007AFF)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                
+                IconButton(
+                    onClick = onEditClick,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Customer",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column {
+                    Text(
+                        text = customer.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = displayedPhone,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
             }
+
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = if (balance > 0) "DUE" else "CLEARED",
@@ -137,6 +289,58 @@ fun CustomerCard(customer: Customer, balance: Double, onClick: () -> Unit) {
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+private fun sendWhatsAppReminder(context: Context, name: String, phone: String, amount: Double) {
+    val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
+    val encodedMessage = try { URLEncoder.encode(message, "UTF-8") } catch (e: Exception) { message }
+    // Clean and remove leading 91
+    val cleanPhone = phone.filter { it.isDigit() }.let { 
+        if (it.startsWith("91") && it.length == 12) it.substring(2) else it 
+    }
+    
+    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage"
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+
+    try {
+        val whatsappIntent = Intent(intent)
+        whatsappIntent.setPackage("com.whatsapp")
+        context.startActivity(whatsappIntent)
+    } catch (e: Exception) {
+        try {
+            context.startActivity(intent)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Could not open WhatsApp or Browser", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun sendSMSReminder(context: Context, name: String, phone: String, amount: Double) {
+    val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
+    // Clean and remove leading 91
+    val cleanPhone = phone.filter { it.isDigit() }.let { 
+        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+    }
+    
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("smsto:$cleanPhone")
+        putExtra("sms_body", message)
+        putExtra("body", message)
+    }
+    
+    try {
+        Toast.makeText(context, "Opening SMS app... Please tap Send", Toast.LENGTH_SHORT).show()
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("sms:$cleanPhone?body=${Uri.encode(message)}")
+        }
+        try {
+            context.startActivity(viewIntent)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Could not open SMS app", Toast.LENGTH_SHORT).show()
         }
     }
 }

@@ -28,10 +28,30 @@ class CustomerViewModel(private val repository: LedgerRepository) : ViewModel() 
         _searchQuery.value = query
     }
 
-    fun addCustomer(name: String, phone: String, onComplete: () -> Unit) {
+    suspend fun isNameDuplicate(name: String, excludeId: Int? = null): Boolean {
+        val existingCustomer = repository.getCustomerByName(name)
+        return existingCustomer != null && existingCustomer.id != excludeId
+    }
+
+    fun addCustomer(name: String, phone: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
-            repository.insertCustomer(Customer(name = name, phone = phone))
-            onComplete()
+            if (isNameDuplicate(name)) {
+                onComplete(false)
+            } else {
+                repository.insertCustomer(Customer(name = name, phone = phone))
+                onComplete(true)
+            }
+        }
+    }
+
+    fun updateCustomer(customer: Customer, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            if (isNameDuplicate(customer.name, customer.id)) {
+                onComplete(false)
+            } else {
+                repository.updateCustomer(customer)
+                onComplete(true)
+            }
         }
     }
     

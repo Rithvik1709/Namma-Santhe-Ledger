@@ -11,7 +11,11 @@ class LedgerRepository(private val customerDao: CustomerDao, private val transac
 
     suspend fun insertCustomer(customer: Customer) = customerDao.insert(customer)
 
+    suspend fun updateCustomer(customer: Customer) = customerDao.update(customer)
+
     suspend fun getCustomerById(id: Int): Customer? = customerDao.getCustomerById(id)
+
+    suspend fun getCustomerByName(name: String): Customer? = customerDao.getCustomerByName(name)
 
     fun getTransactionsByCustomer(customerId: Int): Flow<List<Transaction>> =
         transactionDao.getTransactionsByCustomer(customerId)
