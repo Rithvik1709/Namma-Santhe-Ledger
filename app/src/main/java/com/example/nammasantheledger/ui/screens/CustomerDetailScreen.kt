@@ -75,11 +75,9 @@ fun CustomerDetailScreen(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val displayedPhone = customer?.phone?.let {
-                        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-                    } ?: ""
+                    val displayedPhone = customer?.phone?.let { cleanTo10Digits(it) } ?: ""
                     Text(
-                        text = displayedPhone,
+                        text = "+91 $displayedPhone",
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.Gray
                     )
@@ -174,15 +172,24 @@ fun CustomerDetailScreen(
     }
 }
 
+private fun cleanTo10Digits(phone: String): String {
+    val digits = phone.filter { it.isDigit() }
+    return if (digits.length >= 12 && digits.startsWith("91")) {
+        digits.substring(2, 12)
+    } else if (digits.length > 10) {
+        digits.takeLast(10)
+    } else {
+        digits
+    }
+}
+
 private fun sendWhatsAppReminder(context: Context, name: String, phone: String, amount: Double) {
     val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
     val encodedMessage = try { URLEncoder.encode(message, "UTF-8") } catch (e: Exception) { message }
-    // Clean and remove leading 91
-    val cleanPhone = phone.filter { it.isDigit() }.let { 
-        if (it.startsWith("91") && it.length == 12) it.substring(2) else it 
-    }
+    val basePhone = cleanTo10Digits(phone)
     
-    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage"
+    // Add 91 prefix for WhatsApp as it's required for international API format
+    val url = "https://api.whatsapp.com/send?phone=91$basePhone&text=$encodedMessage"
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
 
     try {
@@ -200,13 +207,11 @@ private fun sendWhatsAppReminder(context: Context, name: String, phone: String, 
 
 private fun sendSMSReminder(context: Context, name: String, phone: String, amount: Double) {
     val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
-    // Clean and remove leading 91
-    val cleanPhone = phone.filter { it.isDigit() }.let { 
-        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-    }
+    val basePhone = cleanTo10Digits(phone)
     
+    // Prepend +91 for SMS recipient
     val intent = Intent(Intent.ACTION_SENDTO).apply {
-        data = Uri.parse("smsto:$cleanPhone")
+        data = Uri.parse("smsto:+91$basePhone")
         putExtra("sms_body", message)
         putExtra("body", message)
     }
@@ -216,7 +221,7 @@ private fun sendSMSReminder(context: Context, name: String, phone: String, amoun
         context.startActivity(intent)
     } catch (e: Exception) {
         val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("sms:$cleanPhone?body=${Uri.encode(message)}")
+            data = Uri.parse("sms:+91$basePhone?body=${Uri.encode(message)}")
         }
         try {
             context.startActivity(viewIntent)

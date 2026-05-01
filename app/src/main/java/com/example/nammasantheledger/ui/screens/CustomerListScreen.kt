@@ -127,10 +127,14 @@ fun CustomerListScreen(
                     customerToEdit = null
                 },
                 onConfirm = { updatedCustomer ->
-                    viewModel.updateCustomer(updatedCustomer) {
-                        showEditDialog = false
-                        customerToEdit = null
-                        Toast.makeText(context, "Customer updated", Toast.LENGTH_SHORT).show()
+                    viewModel.updateCustomer(updatedCustomer) { success ->
+                        if (success) {
+                            showEditDialog = false
+                            customerToEdit = null
+                            Toast.makeText(context, "Customer updated", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Name already exists", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             )
@@ -145,11 +149,8 @@ fun EditCustomerDialog(
     onConfirm: (Customer) -> Unit
 ) {
     var name by remember { mutableStateOf(customer.name) }
-    // Pre-clean the phone number for the input field
     var phone by remember { 
-        mutableStateOf(customer.phone.let {
-            if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-        }) 
+        mutableStateOf(cleanTo10Digits(customer.phone)) 
     }
 
     AlertDialog(
@@ -167,16 +168,14 @@ fun EditCustomerDialog(
                     value = phone,
                     onValueChange = { phone = it },
                     label = { Text("Phone Number") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    prefix = { Text("+91 ") }
                 )
             }
         },
         confirmButton = {
             Button(onClick = {
-                // Final clean before saving
-                val cleanedPhone = phone.filter { it.isDigit() }.let {
-                    if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-                }
+                val cleanedPhone = cleanTo10Digits(phone)
                 onConfirm(customer.copy(name = name, phone = cleanedPhone))
             }) {
                 Text("Save")
@@ -199,10 +198,7 @@ fun CustomerCard(
     onSMSClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    // Ensure display always strips 91
-    val displayedPhone = customer.phone.let {
-        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-    }
+    val displayedPhone = cleanTo10Digits(customer.phone)
 
     Card(
         modifier = Modifier
@@ -268,7 +264,7 @@ fun CustomerCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = displayedPhone,
+                        text = "+91 $displayedPhone",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -293,15 +289,24 @@ fun CustomerCard(
     }
 }
 
+private fun cleanTo10Digits(phone: String): String {
+    val digits = phone.filter { it.isDigit() }
+    return if (digits.length >= 12 && digits.startsWith("91")) {
+        digits.substring(2, 12)
+    } else if (digits.length > 10) {
+        digits.takeLast(10)
+    } else {
+        digits
+    }
+}
+
 private fun sendWhatsAppReminder(context: Context, name: String, phone: String, amount: Double) {
     val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
     val encodedMessage = try { URLEncoder.encode(message, "UTF-8") } catch (e: Exception) { message }
-    // Clean and remove leading 91
-    val cleanPhone = phone.filter { it.isDigit() }.let { 
-        if (it.startsWith("91") && it.length == 12) it.substring(2) else it 
-    }
+    val basePhone = cleanTo10Digits(phone)
     
-    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMessage"
+    // Use 91 prefix (international format without + is preferred by WA API)
+    val url = "https://api.whatsapp.com/send?phone=91$basePhone&text=$encodedMessage"
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
 
     try {
@@ -319,26 +324,24 @@ private fun sendWhatsAppReminder(context: Context, name: String, phone: String, 
 
 private fun sendSMSReminder(context: Context, name: String, phone: String, amount: Double) {
     val message = "Hello $name, you have a pending due of Rs. ${String.format("%.2f", amount)} at Namma Santhe Ledger. Please clear when convenient. Thank you! - From: +91 7428730894"
-    // Clean and remove leading 91
-    val cleanPhone = phone.filter { it.isDigit() }.let { 
-        if (it.startsWith("91") && it.length == 12) it.substring(2) else it
-    }
+    val basePhone = cleanTo10Digits(phone)
     
-    val intent = Intent(Intent.ACTION_SENDTO).apply {
-        data = Uri.parse("smsto:$cleanPhone")
-        putExtra("sms_body", message)
-        putExtra("body", message)
-    }
+    // Standard SMS URI with +91 prefix
+    val uri = Uri.parse("sms:+91$basePhone?body=${Uri.encode(message)}")
+    val intent = Intent(Intent.ACTION_VIEW, uri)
+    
+    // Backup extras
+    intent.putExtra("sms_body", message)
+    intent.putExtra("body", message)
     
     try {
         Toast.makeText(context, "Opening SMS app... Please tap Send", Toast.LENGTH_SHORT).show()
         context.startActivity(intent)
     } catch (e: Exception) {
-        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("sms:$cleanPhone?body=${Uri.encode(message)}")
-        }
         try {
-            context.startActivity(viewIntent)
+            val fallbackIntent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:+91$basePhone"))
+            fallbackIntent.putExtra("sms_body", message)
+            context.startActivity(fallbackIntent)
         } catch (e2: Exception) {
             Toast.makeText(context, "Could not open SMS app", Toast.LENGTH_SHORT).show()
         }

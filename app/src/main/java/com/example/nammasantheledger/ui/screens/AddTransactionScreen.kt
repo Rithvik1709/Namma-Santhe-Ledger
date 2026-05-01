@@ -112,17 +112,28 @@ fun CustomerSelectionStep(
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(customers) { customer ->
+                val displayedPhone = customer.phone.let {
+                    if (it.startsWith("91") && it.length == 12) it.substring(2) else it
+                }
                 Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onCustomerSelected(customer) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onCustomerSelected(customer) },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
-                    Text(
-                        text = customer.name,
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = customer.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "+91 $displayedPhone",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
                 }
             }
         }
